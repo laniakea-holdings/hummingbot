@@ -18,13 +18,13 @@ class SimplePMM(ScriptStrategyBase):
     exchange, with a distance defined by the ask_spread and bid_spread. Every order_refresh_time in seconds,
     the bot will cancel and replace the orders.
     """
-    bid_spread = 0.001
-    ask_spread = 0.001
+    bid_spread = 0.00000000001
+    ask_spread = 0.00000000001
     order_refresh_time = 15
     order_amount = 0.01
     create_timestamp = 0
     trading_pair = "ETH-USDT"
-    exchange = "kucoin_paper_trade"
+    exchange = "okx"
     # Here you can use for example the LastTrade price to use in your strategy
     price_source = PriceType.MidPrice
 
@@ -40,8 +40,10 @@ class SimplePMM(ScriptStrategyBase):
 
     def create_proposal(self) -> List[OrderCandidate]:
         ref_price = self.connectors[self.exchange].get_price_by_type(self.trading_pair, self.price_source)
+
         buy_price = ref_price * Decimal(1 - self.bid_spread)
         sell_price = ref_price * Decimal(1 + self.ask_spread)
+        self.calculate_pnl()
 
         buy_order = OrderCandidate(trading_pair=self.trading_pair, is_maker=True, order_type=OrderType.LIMIT,
                                    order_side=TradeType.BUY, amount=Decimal(self.order_amount), price=buy_price)
@@ -75,3 +77,33 @@ class SimplePMM(ScriptStrategyBase):
         msg = (f"{event.trade_type.name} {round(event.amount, 2)} {event.trading_pair} {self.exchange} at {round(event.price, 2)}")
         self.log_with_clock(logging.INFO, msg)
         self.notify_hb_app_with_timestamp(msg)
+
+    def get_pair_balance(self) -> float:
+        price = self.connectors[self.exchange].get_price_by_type(self.trading_pair, self.price_source)
+        balance_df = self.get_balance_df()
+        base_balances = {}
+        base_currencies = [self.trading_pair[:self.trading_pair.find("-")], self.trading_pair[self.trading_pair.find("-") + 1:]]
+        exchange_balance_df = balance_df.loc[balance_df["Exchange"] == self.exchange]
+        for _, row in exchange_balance_df.iterrows():
+            asset_name = row["Asset"]
+            if asset_name in base_currencies:
+                total_balance = Decimal(row["Total Balance"])
+                available_balance = Decimal(row["Available Balance"])
+                base_balances[asset_name] = (total_balance, available_balance)
+        pair_balance = base_balances[base_currencies[0]][0] * price + base_balances[base_currencies[1]][0]
+        return pair_balance
+
+    start_balance = 0
+
+    def calculate_pnl(self) -> float:
+        current_balance = self.get_pair_balance()
+        diff = current_balance - self.start_balance
+        msg = (f"Current PnL: {diff}")
+        self.logger().notify(msg)
+        self.log_with_clock(logging.INFO, msg)
+        self.notify_hb_app_with_timestamp(msg)
+        msg = (f"Current spread: {self.bid_spread}")
+        self.logger().notify(msg)
+        self.log_with_clock(logging.INFO, msg)
+        self.notify_hb_app_with_timestamp(msg)
+        return diff
