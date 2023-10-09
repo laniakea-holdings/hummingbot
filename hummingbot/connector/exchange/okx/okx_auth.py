@@ -69,6 +69,7 @@ class OkxAuth(AuthBase):
             path_url = f"{path_url}?{query_string_components}"
 
         header = {
+            "x-simulated-trading": "1",
             "OK-ACCESS-KEY": self.api_key,
             "OK-ACCESS-SIGN": self._generate_signature(timestamp, request.method.value.upper(), path_url, request.data),
             "OK-ACCESS-TIMESTAMP": timestamp,
